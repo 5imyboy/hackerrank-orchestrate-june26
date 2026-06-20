@@ -81,10 +81,14 @@ SEVERITY RUBRIC (do not over-estimate; reserve "high" for genuinely severe damag
   nothing wrong).
 - low: minor/cosmetic — a light scratch, small scuff, a single small dent, a
   hairline mark.
-- medium: clearly visible damage to one part — a typical dent, a crack, a broken
-  mirror/hinge, a crushed package corner, a keyboard stain.
-- high: severe or extensive — major structural deformation, shattered glass,
-  multiple damaged parts, a destroyed/heavily crushed item.
+- medium: clearly visible damage to ONE part — a typical dent, a crack (INCLUDING
+  a full spider-web crack across a windshield or laptop screen, however dramatic),
+  a broken mirror/hinge, a crushed package corner, a keyboard stain. A single
+  cracked pane or panel is medium, not high.
+- high: severe or EXTENSIVE — major structural deformation, MULTIPLE damaged
+  parts, glass actually shattered into separate fragments (pieces missing / a hole
+  in the pane), or a destroyed/heavily crushed item. Do NOT use high for a single
+  cracked screen/windshield or a single dent.
 - unknown: damage exists or is claimed but extent cannot be judged from the image.
 
 ISSUE TYPE DISAMBIGUATION:

@@ -61,6 +61,31 @@
 | user_033 | package | unknown | none | ✗ |
 | user_034 | package | none | torn_packaging | ✗ |
 
+## severity (headline)
+
+| user_id | object | gold | pred | ok |
+|---|---|---|---|---|
+| user_001 | car | medium | high | ✗ |
+| user_002 | car | unknown | medium | ✗ |
+| user_004 | car | medium | medium | ✓ |
+| user_007 | car | medium | medium | ✓ |
+| user_005 | car | low | none | ✗ |
+| user_006 | car | unknown | unknown | ✓ |
+| user_003 | car | medium | medium | ✓ |
+| user_008 | car | high | none | ✗ |
+| user_009 | laptop | medium | high | ✗ |
+| user_010 | laptop | medium | medium | ✓ |
+| user_011 | laptop | medium | medium | ✓ |
+| user_012 | laptop | low | low | ✓ |
+| user_018 | laptop | medium | high | ✗ |
+| user_020 | laptop | none | none | ✓ |
+| user_015 | package | medium | medium | ✓ |
+| user_030 | package | medium | medium | ✓ |
+| user_031 | package | medium | medium | ✓ |
+| user_032 | package | unknown | medium | ✗ |
+| user_033 | package | low | none | ✗ |
+| user_034 | package | none | medium | ✗ |
+
 ## Per-case misses (only cases with at least one wrong field)
 
 **user_001** (car):

@@ -167,9 +167,10 @@ def write_diff(
                  f"R {rf['recall']*100:.1f}%  F1 {rf['f1']*100:.1f}%")
     lines.append("")
 
-    # --- per-field headline tables (claim_status, then issue_type) ---
+    # --- per-field headline tables (claim_status, issue_type, severity) ---
     _headline_table(lines, preds, gold, "claim_status", "claim_status (headline)")
     _headline_table(lines, preds, gold, "issue_type", "issue_type (headline)")
+    _headline_table(lines, preds, gold, "severity", "severity (headline)")
 
     # --- per-case field misses ---
     lines.append("## Per-case misses (only cases with at least one wrong field)")
