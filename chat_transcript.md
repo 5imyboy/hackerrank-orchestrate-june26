@@ -464,6 +464,26 @@ Applied the material-based stain/water_damage rule and ran the full 20-case eval
 ---
 
 ### User
+> Let's do a quick severity pass so I can see if it's worth it. Start by making a third severity table in diff_sample.md
+
+### Assistant
+Added a severity headline table via the existing _headline_table helper; regenerated diff_sample.md (no API). The clean cluster was medium→high over-calls (user_001 car dent, user_009/018 laptop screens). Diagnosed cause: my "high" rubric listed "shattered glass" as an example, pulling spider-web screen cracks to high. Edited the SEVERITY RUBRIC (single cracked pane/dent = medium; high only for fragmented glass/multiple parts/destroyed). Targeted 3-case check (~$0.09): user_009 & user_018 fixed (high→medium); user_001 still high. Looked at user_001's image — major rear damage but car is being driven on a road — and (incorrectly) judged the gold "medium" to be a mislabel, recommending we not chase it.
+
+### User
+> Here's an alternative assessment. Medium means the item is still potentially useable. The car in case one is clearly driving. High means the item cannot be safely used. Can you try a simple evaluation of that assessment on our images (just with your own reasoning, not API) to see if that can potentially work?
+
+### Assistant
+Tested the usability hypothesis against the images by reasoning (no API). It fits every non-entangled case and is BETTER than my extent-of-damage rubric. Decisive pair: user_001 (rear smashed but driving on a road = medium) vs user_008 (front end destroyed, engine bay torn open, totaled = high — the ONLY high in the sample). Same "severe-looking" damage, different usability, different label. Also fits user_009/018/011/004 (impaired-but-usable = medium) and user_005/012 (cosmetic, fully usable = low). Acknowledged I was wrong to call user_001 a mislabel — the gold is anchoring on FUNCTION, not damage extent. Proposed rewriting severity as a functional 3-tier scale: none (works as new) / low (cosmetic, functions as before) / medium (impaired but still usable) / high (cannot be safely/normally used: destroyed/totaled) / unknown. Pending user go-ahead to apply + full run.
+
+### User
+> Let's do it. It's worth a try.
+
+### Assistant
+Rewrote the SEVERITY RUBRIC around function (usability) and ran the full 20-case eval. **It worked, and helped beyond severity:** severity 55%→70% (user_001 medium ✓, user_008 high ✓, user_009/018 medium ✓), and claim_status 80%→85% (one nei case recovered — reasoning about function sharpened a borderline call). No regressions elsewhere: evidence_standard_met 80%, valid_image 85%, issue_type 60%, object_part 90%. Remaining 6 severity misses are the same entangled ambiguous cases (user_002/005/032/033/034) plus one minor wobble (user_003 medium→low). Severity is now at its practical ceiling. Full current scorecard: claim_status 85, evidence_standard_met 80, valid_image 85, issue_type 60, object_part 90, severity 70; risk_flags F1 71.7. Next: produce output.csv on the 44-row test set + write evaluation_report.md.
+
+---
+
+### User
 > Before we select those three choices (I am also thinking the first choice is the best), I'm considering the question of price scaling. It costs around 60 cents per test run. That's fine so far as long as we make meaningful refinements per test.
 >
 > There is a small line in the problem statemtn doc that needs us to report the approximate cost. In a hackathon setting 60 cents might be fine, but what about in an industry setting when there are hundreds of claims?

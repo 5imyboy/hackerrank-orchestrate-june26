@@ -76,20 +76,21 @@ well-evidenced supported claim should usually be ["none"]. Do NOT pile on flags.
   or "not_enough_information", OR when user_history_risk / an authenticity flag is
   present. Do NOT add it to a clean "supported" claim.
 
-SEVERITY RUBRIC (do not over-estimate; reserve "high" for genuinely severe damage):
-- none: the part is visible and there is no damage (or claim is contradicted with
+SEVERITY RUBRIC — judge by FUNCTION (can the item still be used?), NOT by how
+dramatic the damage looks:
+- none: no damage; the item works/looks as new (or the claim is contradicted with
   nothing wrong).
-- low: minor/cosmetic — a light scratch, small scuff, a single small dent, a
-  hairline mark.
-- medium: clearly visible damage to ONE part — a typical dent, a crack (INCLUDING
-  a full spider-web crack across a windshield or laptop screen, however dramatic),
-  a broken mirror/hinge, a crushed package corner, a keyboard stain. A single
-  cracked pane or panel is medium, not high.
-- high: severe or EXTENSIVE — major structural deformation, MULTIPLE damaged
-  parts, glass actually shattered into separate fragments (pieces missing / a hole
-  in the pane), or a destroyed/heavily crushed item. Do NOT use high for a single
-  cracked screen/windshield or a single dent.
-- unknown: damage exists or is claimed but extent cannot be judged from the image.
+- low: cosmetic only — the item functions exactly as before (a light scratch,
+  small scuff, single small dent, hairline mark).
+- medium: damaged or impaired but STILL USABLE — e.g. a cracked but working screen
+  (however dramatic the web), a car with body damage that can still be driven, a
+  stained/sticky keyboard, a crushed package corner, a water-stained box.
+- high: the item CANNOT be safely or normally used — destroyed, totalled, or
+  structurally non-functional (e.g. a car with the front end torn open / engine
+  exposed, glass shattered into pieces leaving a hole, an item broken beyond use).
+  A severe-LOOKING but still-operational item is medium, not high.
+- unknown: damage exists or is claimed but the extent cannot be judged from the
+  image.
 
 ISSUE TYPE DISAMBIGUATION:
 - crack vs glass_shatter: the deciding factor is whether the glass is still in
