@@ -118,6 +118,29 @@ def write_predictions(rows: list[dict[str, str]], path: Path) -> None:
         w.writerows(rows)
 
 
+def _headline_table(
+    lines: list[str],
+    preds: list[dict[str, str]],
+    gold: list[dict[str, str]],
+    field: str,
+    title: str,
+) -> None:
+    """Append a one-row-per-case gold-vs-pred table for `field` to `lines`.
+
+    `lines` is mutated in place (Python lists are passed by reference, like a
+    Java object reference), so there is nothing to return.
+    """
+    lines.append(f"## {title}")
+    lines.append("")
+    lines.append("| user_id | object | gold | pred | ok |")
+    lines.append("|---|---|---|---|---|")
+    for p, g in zip(preds, gold):
+        ok = "✓" if p[field].strip().lower() == g[field].strip().lower() else "✗"
+        lines.append(f"| {g['user_id']} | {g['claim_object']} | "
+                     f"{g[field]} | {p[field]} | {ok} |")
+    lines.append("")
+
+
 def write_diff(
     preds: list[dict[str, str]],
     gold: list[dict[str, str]],
@@ -144,16 +167,9 @@ def write_diff(
                  f"R {rf['recall']*100:.1f}%  F1 {rf['f1']*100:.1f}%")
     lines.append("")
 
-    # --- claim_status headline table ---
-    lines.append("## claim_status (headline)")
-    lines.append("")
-    lines.append("| user_id | object | gold | pred | ok |")
-    lines.append("|---|---|---|---|---|")
-    for p, g in zip(preds, gold):
-        ok = "✓" if p["claim_status"].strip() == g["claim_status"].strip() else "✗"
-        lines.append(f"| {g['user_id']} | {g['claim_object']} | "
-                     f"{g['claim_status']} | {p['claim_status']} | {ok} |")
-    lines.append("")
+    # --- per-field headline tables (claim_status, then issue_type) ---
+    _headline_table(lines, preds, gold, "claim_status", "claim_status (headline)")
+    _headline_table(lines, preds, gold, "issue_type", "issue_type (headline)")
 
     # --- per-case field misses ---
     lines.append("## Per-case misses (only cases with at least one wrong field)")

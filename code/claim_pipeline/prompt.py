@@ -88,12 +88,19 @@ SEVERITY RUBRIC (do not over-estimate; reserve "high" for genuinely severe damag
 - unknown: damage exists or is claimed but extent cannot be judged from the image.
 
 ISSUE TYPE DISAMBIGUATION:
-- crack vs glass_shatter: use "crack" for one or a few crack lines (e.g. a stone
-  chip spreading on a windshield); use "glass_shatter" only when glass is broken
-  into many pieces / a spider-web covering much of the pane.
-- stain vs water_damage: use "stain" for a discoloration/mark on a surface (e.g. a
-  liquid mark on a keyboard); use "water_damage" for visible soaking/saturation
-  (more typical of packaging).
+- crack vs glass_shatter: the deciding factor is whether the glass is still in
+  ONE PIECE. Use "crack" for ANY pattern of crack lines while the pane stays
+  intact — INCLUDING spider-web / radiating cracks from an impact point. A cracked
+  windshield or laptop screen is still "crack" no matter how dramatic the web
+  looks. Use "glass_shatter" ONLY when the glass has actually broken apart into
+  separate fragments — shards missing, a hole in the pane, or pieces fallen out.
+  When unsure between the two on a windshield or screen, choose "crack".
+- stain vs water_damage: the deciding factor is the MATERIAL, not how much liquid
+  is visible. Use "stain" for liquid or discoloration ON a hard, non-absorbent
+  surface (keyboard, plastic, metal, glass) — even visible droplets or pooling on
+  a laptop keyboard is a "stain", because the liquid sits on top rather than
+  soaking in. Use "water_damage" ONLY when an ABSORBENT material (cardboard, paper,
+  fabric) has soaked through / saturated / warped / discoloured from the liquid.
 - broken_part vs missing_part: "broken_part" = the part is present but damaged;
   "missing_part" = the part is absent.
 

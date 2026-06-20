@@ -404,6 +404,66 @@ claim_status confusion: supported 12/12 (perfect), contradicted 4/5, nei 0/3 (no
 ---
 
 ### User
+> Could you edit diff_sample.md to show a table with the mismatched issue types, just like how you did with the claim status?
+
+### Assistant
+Refactored the headline-table logic in code/evaluation/main.py into a `_headline_table(lines, preds, gold, field, title)` helper and called it for both claim_status and issue_type, so diff_sample.md now has an `issue_type (headline)` table (gold vs pred, ✓/✗ per case) on every run. Regenerated diff_sample.md from on-disk predictions (no API calls). The table exposed systematic issue_type confusions: crack→glass_shatter (3×: user_004/009/018, the biggest cluster), stain→water_damage (user_011), broken_part→none/dent (user_002/008), and several unknown mismatches. Recommended fixing crack→glass_shatter first.
+
+---
+
+### User
+> Go ahead, do that first.
+
+### Assistant
+Pulled the 3 crack cases' claims/justifications: all three are spider-web/radiating cracks on an INTACT pane (windshield + 2 laptop screens) that the model correctly saw but labelled glass_shatter. Found my existing rule was the culprit — it literally said "a spider-web covering much of the pane → glass_shatter". Drafted a fix: deciding factor = "is the pane still in ONE PIECE?"; spider-web included under crack; default to crack when unsure on glass.
+
+### User
+> Before you do, could you give me the images of some cases with a glass_shatter gold designation so I can check for myself?
+
+### Assistant
+Discovered there are ZERO glass_shatter gold labels in the sample — so every glass_shatter prediction is wrong on this data. Showed the user the 3 images the dataset labels "crack" instead (case_003 windshield, case_009 + case_013 MacBooks) — all dramatic spider-web/impact-star patterns on intact panes. Confirmed the convention: spider-web on an intact pane = crack; glass_shatter requires actual fragmentation.
+
+### User
+> Sounds good, proceed as previously planned.
+
+### Assistant
+Applied the crack-vs-glass_shatter rule fix to prompt.py.
+
+### User
+> Just run on the relevant test cases (I bellieve there are three). We are just checking the crack vs the glass shatter rule, right?
+
+### Assistant
+Ran a targeted check on just the 3 cases (user_004/009/018) — 3 API calls (~$0.09) instead of the full 20. Result: all 3 now predict crack (gold=crack), **3/3 fixed**. Projected issue_type ~45%→~60% on the full set, pending a full run to confirm no collateral regressions and refresh diff_sample.md.
+
+---
+
+### User
+> Let's do step 1, then step three. I think the changes are unrelated enough to not affect each other. If I'm wrong it'll be a learning experience.
+
+### Assistant
+[Investigated stain vs water_damage (user_011).] Viewed the images: user_011 = water droplets/pooling sitting ON a hard laptop keyboard (gold=stain); user_031 = cardboard soaked/saturated (gold=water_damage). Concluded the deciding factor is the MATERIAL (absorbent soaked-through = water_damage; liquid on a hard surface = stain), not the amount of liquid visible. Drafted a rule fix encoding that.
+
+### User
+> Before you do, could you tell me where the gold test cases are located? I want to double check the user 11 really is 'stain.'
+
+### Assistant
+Pointed to dataset/sample_claims.csv line 12; confirmed issue_type (8th column) = "stain", and the gold's own free-text columns say "stain"/"staining". Explained sample_claims.csv carries inputs + gold-output columns (vs claims.csv = inputs only).
+
+### User
+> I have some alternative reasoning. Both users stated that the source of damage was a stain and water damage. I know that the images are the source of truth. How much should we value user input here?
+
+### Assistant
+Checked user_031's transcript and found it DISAMBIGUATES the question: the customer said BOTH "water damaged" AND "wet-looking stain", yet gold = water_damage. So the label tracked the image/material, not the customer's vocabulary — the gold effectively overrode the customer's word "stain" based on the soaked cardboard. Conclusion on valuing user input: for the issue_type taxonomy the image/material is decisive; customer input is legitimate only for (1) telling you what to check and (2) a tiebreaker when the image is genuinely ambiguous and consistent with their words — never to override clear visual evidence (also a fraud safeguard). Leaning harder on customer language is gameable, often vague, and may not match the test set. The material-based rule is the robust encoding.
+
+### User
+> Yes, go ahead.
+
+### Assistant
+Applied the material-based stain/water_damage rule and ran the full 20-case eval. **Both fixes landed independently — no interference:** issue_type 45%→60%, claim_status held at 80%, evidence_standard_met 80%, valid_image 85%, object_part 90%; severity 45%→55% and risk_flags F1 67.9%→74.1% also improved. All 4 targeted cells now ✓ (crack ×3, stain ×1). Remaining 8 issue_type misses are mostly entangled with the ambiguous claim_status edge cases (gold uses unknown/none); only user_007 (broken_part→crack) is a clean isolated miss. issue_type is near its practical ceiling without disturbing the ambiguous cases.
+
+---
+
+### User
 > Before we select those three choices (I am also thinking the first choice is the best), I'm considering the question of price scaling. It costs around 60 cents per test run. That's fine so far as long as we make meaningful refinements per test.
 >
 > There is a small line in the problem statemtn doc that needs us to report the approximate cost. In a hackathon setting 60 cents might be fine, but what about in an industry setting when there are hundreds of claims?
