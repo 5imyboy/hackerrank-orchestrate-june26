@@ -23,7 +23,12 @@ from .prompt import SYSTEM_PROMPT, build_user_content
 from .schema import ClaimAssessment
 
 MODEL = "claude-opus-4-8"
-MAX_TOKENS = 2048
+# Adaptive thinking tokens count against max_tokens, so this budget must cover
+# the model's reasoning PLUS the JSON answer. 2048 truncated the JSON on
+# harder cases (the response was cut off mid-object and failed to parse), so we
+# give generous headroom. Output is billed per token actually used, so a high
+# cap costs nothing extra when the response is short.
+MAX_TOKENS = 8000
 
 # The system prompt is identical for every claim, so we build the cached block
 # ONCE at import time and reuse it on every call. cache_control marks it so
@@ -82,9 +87,9 @@ def _extract_json(text: str) -> dict:
     and slice from the first '{' to the last '}' before json.loads.
     """
     t = text.strip()
-    if t.startswith("```"):
-        # remove a leading ```json / ``` fence and the trailing fence
-        t = t.split("```", 2)[-1] if t.count("```") >= 2 else t.strip("`")
+    # Strip a ```json ... ``` fence if the model added one. We just remove all
+    # triple-backtick markers and the optional "json" tag, then slice the braces.
+    t = t.replace("```json", "").replace("```", "").strip()
     start, end = t.find("{"), t.rfind("}")
     if start == -1 or end == -1:
         raise ValueError(f"No JSON object found in model output: {text[:200]!r}")
@@ -130,6 +135,11 @@ def assess_case(
                 thinking={"type": "adaptive"},
             ) as stream:
                 message = stream.get_final_message()
+
+            # If the model hit the token ceiling, the JSON is likely cut off.
+            # Surface it as a retryable error rather than a confusing parse fail.
+            if message.stop_reason == "max_tokens":
+                raise ValueError("response truncated at max_tokens")
 
             data = _extract_json(_final_text(message))
             assessment = ClaimAssessment.model_validate(data)

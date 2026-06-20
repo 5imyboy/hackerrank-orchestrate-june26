@@ -298,3 +298,80 @@ Fix: in data.py, detect the true media type from **magic bytes** (not the extens
 - Per-field exact-match: evidence_standard_met 70%, valid_image 80%, claim_status 70%, issue_type 50%, object_part 85%, severity 50%.
 - claim_status confusion (gold→pred): supported 10/12 (2→nei); contradicted 3/5 (1→supported, 1→nei); not_enough_information 1/3.
 - risk_flags micro: precision 58.5%, recall 82.8%, F1 68.6% (tp=24, fp=17, fn=5) — i.e. over-flagging.
+
+---
+
+### Assistant (via question UI)
+Offered next-step options: iterate the prompt, dig into the per-case diff, or produce output.csv.
+
+### User
+> [Chose] Iterate the prompt now
+
+### Assistant
+Investigated the abstention cases first. Cases 009 & 013 (clear laptop-screen cracks) had shown as **total abstention** — but the real cause was not the prompt: `MAX_TOKENS=2048` was too small once adaptive thinking consumed the budget, so the JSON answer was cut off mid-object → parse failed → all 3 retries truncated → `error_row`. The model's partial output proved it had correctly seen the cracks. Fixed in client.py: raised `MAX_TOKENS` to 8000, hardened `_extract_json` (strip ``` fences, slice first `{` to last `}`), and added a `stop_reason == "max_tokens"` check that raises a retryable error instead of a confusing parse failure.
+
+Then iterated the system prompt (prompt.py) to attack the measured error modes:
+- **RISK FLAGS** rewritten to be CONSERVATIVE: only add `user_history_risk` when `history_flags` is non-empty / not "none"; only add `manual_review_required` when status is contradicted/nei OR an authenticity/history flag is present (NOT on a clean supported claim); image-quality flags only when they genuinely impede assessment. (Targets the over-flagging: P 58.5%.)
+- **SEVERITY RUBRIC** added (none/low/medium/high/unknown with explicit definitions; reserve "high" for severe damage). (Targets severity 50%, medium→high over-estimation.)
+- **ISSUE TYPE DISAMBIGUATION** added (crack vs glass_shatter; stain vs water_damage; broken_part vs missing_part). (Targets issue_type 50%.)
+
+---
+
+### User
+> For the first sentence, what is the difference between contradicted and not enough information then?
+
+### Assistant
+Caught a logical contradiction in my own draft: I had written that "a different object" pushes to `not_enough_information`, but case_019 (wrong object, clearly shown) is gold-labelled `contradicted`. Reframed the whole distinction around a single axis — **"can I make a reliable determination from this evidence?"** — rather than "does the claim look false?":
+- contradicted = the evidence is trustworthy/readable AND it disproves the claim (you can make a confident *negative* determination).
+- not_enough_information = you cannot make ANY reliable determination (part not shown, too blurry/dark, or the image set is internally inconsistent/untrustworthy).
+
+So a single clear image of the wrong object → contradicted; an untrustworthy/contradictory image *set* → nei.
+
+---
+
+### User
+> Ok, this looks almost good to me. I'm confused about the last sentence, "Do not abstain when the claimed damage IS clearly visible — commit to supported/contradicted." In claim 2, I would argue the damage is "clearly visible". I can see the damage on the first car (I just don't know if that's the right car). Would your (Claude's) ai model think along those lines too?
+
+### Assistant
+Agreed — and answered the meta-question honestly: **yes, the model would reason exactly that way.** A vision model anchors on the salient feature (the visible scratch) and under-weights the meta-question of whether the evidence can be *trusted* to be the claimed item, unless trust is made an explicit, separate gate. So that last sentence would actively push toward the wrong answer on case_002 (gold = not_enough_information: scratch visible, but can't confirm it's the claimed car). The fix: "damage is visible" must be **necessary but not sufficient** — committing requires visible damage AND trustworthy evidence of the claimed item. Proposed a corrected HOW TO DECIDE block whose final sentence makes that gate explicit.
+
+---
+
+### User
+> Looks good, but one more question. This is structured in three sections: support criteria, contradicted critera, and not enough information criteira. Then, you have a big "IMPORTANT" statement that reiterates what is already said. From a human standpoint it feels verbose and extra, but this is going to be fed into a prompt. Would an AI model have those same concerns?
+
+### Assistant
+Partially. Unlike a human reviewer, an LLM does not penalize deliberate restatement of a *key constraint* — recency (last thing in a section gets extra weight at generation time) and emphasis markers like "IMPORTANT" measurably improve adherence, so controlled repetition is a legitimate technique, not padding. BUT repetition isn't free: extra tokens plus **attention dilution** — if the restatement carries no new signal it blurs the boundary it's meant to sharpen. The real test is whether the block adds signal the three bullets don't. Here it does, but buries it: each bullet describes one *branch*; none states the **cross-cutting gate** ("visible damage is necessary but not sufficient; trust is a separate axis" — the case_002 lesson). So: keep it, but compress to a single GATE sentence and drop the re-narration of the branches. Proposed:
+> GATE (applies to all three): visible damage is necessary but NOT sufficient to commit. You must also trust the evidence is of the CLAIMED item. If damage is clear but its link to the claimed item is not trustworthy (e.g. photos look like different objects), choose not_enough_information.
+
+---
+
+### User
+> Yes, that is good. After that, record everything new in the transcript before proceeding.
+
+### Assistant
+[Applied the corrected HOW TO DECIDE claim_status block to prompt.py — reframed around the "reliable determination from trustworthy evidence" axis, with the compressed GATE sentence as the final line.] Then recorded all the new turns into this transcript (this section). Next: re-run the 20-sample evaluation to measure the prompt changes against the baseline above.
+
+[Re-ran the 20-sample evaluation. Runtime 35.4s, cost $0.60 (up from $0.41 — more thinking tokens).] **The prompt change REGRESSED the headline metric:**
+
+| field | baseline | now | Δ |
+|---|---|---|---|
+| claim_status | 70% | 60% | ▼ |
+| evidence_standard_met | 70% | 60% | ▼ |
+| valid_image | 80% | 65% | ▼ |
+| issue_type | 50% | 40% | ▼ |
+| object_part | 85% | 90% | ▲ |
+| severity | 50% | 55% | ▲ |
+| risk_flags F1 | 68.6% | 70.8% | ▲ |
+
+Per-case diff showed the GATE **over-fired**: case_002 became correct (nei), but 7 cases that should commit leaked to not_enough_information (user_003/004/005/008/010/030/033/034), and the same cases also flipped evidence_standard_met and valid_image to false. Root cause: the model treated "I cannot independently prove identity" as grounds to abstain, instead of only abstaining on a CONCRETE inconsistency.
+
+Proposed a fix — soften the GATE to "DEFAULT TO TRUST": assume images ARE of the claimed item and commit when damage/absence is visible; abstain on trust grounds ONLY when there is a positive red flag (photos plainly show different objects, or wrong object type). This keeps case_002's nei (it has a real multi-car inconsistency) while recovering the 7 committed cases.
+
+---
+
+### User
+> Save this edit for now, but let's slow down a bit. I'd like to see the test results myself easily if not this time, then next time.
+
+### Assistant
+Held the "default to trust" prompt edit (NOT applied — saved for later). Addressed the real gap: the eval only printed aggregate metrics + dumped predictions_sample.csv/metrics.json, so seeing *what went wrong* required an ad-hoc diff script. Added a first-class, human-readable per-case diff artifact to code/evaluation/main.py — `write_diff()` writes `evaluation/diff_sample.md` every run with: (1) a summary block (n/runtime/cost/per-field accuracy), (2) a claim_status headline table (user_id | object | gold | pred | ✓/✗), and (3) per-case field misses (`field: gold → pred`) plus risk-flag set diffs (`+extra -missing`). It re-reads predictions already on disk, so no extra API calls. Generated diff_sample.md from the existing (regressed) run to demonstrate; py_compile passes. The diff confirmed the over-abstention cases share evidence_standard_met/valid_image flips — one root cause the pending softening should fix together. Prompt.py currently still has the strict GATE (the regression); the softening is pending the user's go-ahead.

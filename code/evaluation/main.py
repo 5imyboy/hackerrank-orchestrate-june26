@@ -118,6 +118,77 @@ def write_predictions(rows: list[dict[str, str]], path: Path) -> None:
         w.writerows(rows)
 
 
+def write_diff(
+    preds: list[dict[str, str]],
+    gold: list[dict[str, str]],
+    metrics: dict,
+    path: Path,
+) -> None:
+    """Write a human-readable per-case diff (Markdown) so misses are easy to see.
+
+    Reads nothing new — it just formats the predictions we already have against
+    the gold rows. `lines` is a list[str] we join at the end (cheaper than
+    repeated string concatenation, ~= a StringBuilder).
+    """
+    lines: list[str] = ["# Sample evaluation — per-case diff", ""]
+
+    # --- summary block ---
+    lines.append(f"- claims scored: **{metrics['n']}**")
+    lines.append(f"- runtime: {metrics.get('runtime_seconds', '?')}s  "
+                 f"cost: ${metrics.get('estimated_cost_usd', '?')}")
+    lines.append("- per-field exact-match accuracy:")
+    for field, acc in metrics["accuracy"].items():
+        lines.append(f"    - {field}: {acc * 100:.1f}%")
+    rf = metrics["risk_flags"]
+    lines.append(f"- risk_flags micro: P {rf['precision']*100:.1f}%  "
+                 f"R {rf['recall']*100:.1f}%  F1 {rf['f1']*100:.1f}%")
+    lines.append("")
+
+    # --- claim_status headline table ---
+    lines.append("## claim_status (headline)")
+    lines.append("")
+    lines.append("| user_id | object | gold | pred | ok |")
+    lines.append("|---|---|---|---|---|")
+    for p, g in zip(preds, gold):
+        ok = "✓" if p["claim_status"].strip() == g["claim_status"].strip() else "✗"
+        lines.append(f"| {g['user_id']} | {g['claim_object']} | "
+                     f"{g['claim_status']} | {p['claim_status']} | {ok} |")
+    lines.append("")
+
+    # --- per-case field misses ---
+    lines.append("## Per-case misses (only cases with at least one wrong field)")
+    lines.append("")
+    any_miss = False
+    for p, g in zip(preds, gold):
+        misses: list[str] = []
+        for field in EXACT_FIELDS:
+            if p[field].strip().lower() != g[field].strip().lower():
+                misses.append(f"  - {field}: `{g[field]}` → `{p[field]}`")
+
+        # risk-flag set diff (what we added vs. what we missed)
+        gp, pp = flag_set(g["risk_flags"]), flag_set(p["risk_flags"])
+        extra, missing = pp - gp, gp - pp
+        if extra or missing:
+            parts = []
+            if extra:
+                parts.append("+" + ",".join(sorted(extra)))
+            if missing:
+                parts.append("-" + ",".join(sorted(missing)))
+            misses.append(f"  - risk_flags: {' '.join(parts)}")
+
+        if misses:
+            any_miss = True
+            lines.append(f"**{g['user_id']}** ({g['claim_object']}):")
+            lines.extend(misses)
+            lines.append("")
+
+    if not any_miss:
+        lines.append("_No field misses — perfect run._")
+        lines.append("")
+
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main() -> None:
     load_dotenv(CODE_DIR / ".env")
     parser = argparse.ArgumentParser(description="Evaluate on sample_claims.csv")
@@ -148,10 +219,12 @@ def main() -> None:
     }
 
     (HERE / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    write_diff(preds, gold, metrics, HERE / "diff_sample.md")
     print_report(metrics)
     print(f"\nRuntime: {elapsed:.1f}s   Estimated cost: ${metrics['estimated_cost_usd']}",
           file=sys.stderr)
-    print(f"Wrote {HERE/'predictions_sample.csv'} and {HERE/'metrics.json'}",
+    print(f"Wrote {HERE/'predictions_sample.csv'}, {HERE/'metrics.json'}, "
+          f"and {HERE/'diff_sample.md'}",
           file=sys.stderr)
 
 
