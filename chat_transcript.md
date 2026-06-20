@@ -241,3 +241,60 @@ Understood — two corrections: (1) update `chat_transcript.md` after **every** 
 [Wrote `.gitignore` (ignores `.env`) and `code/README.md`. Ran `py_compile` on every file — all compile — and a dependency-free smoke test of the data layer: 20 sample cases hydrate correctly with base64 images, user history, and evidence requirements. Confirmed `pydantic`/`anthropic` are not installed yet and `ANTHROPIC_API_KEY` is unset.]
 
 The full pipeline is written and compiles. To run it you need to: (1) install deps `pip install -r code/requirements.txt`, and (2) set `ANTHROPIC_API_KEY` (in `code/.env` or the shell). The natural next step is `python code/evaluation/main.py` on the labeled sample — but that makes ~20 real (paid) API calls, so I'll confirm before running. Still to write: `evaluation/evaluation_report.md` (operational analysis), which I'll finalize with real numbers after the first sample run.
+
+[Asked, via the question UI, how to proceed with the first real run. The user interrupted/rejected the question.]
+
+---
+
+### User
+> [Interrupted the pending question.] I've installed the dependencies in a virtual environment on my terminal (.venv), and have created an api key with anthropic. I have not added usage credits to it yet.
+
+### Assistant
+Acknowledged; holding — no API calls. Flagged that without usage credits any live call fails fast with a billing error (HTTP 400, "credit balance is too low"), so the sample eval needs credits added first. Reminded the user that `code/.env` should be `ANTHROPIC_API_KEY=sk-ant-...` (no quotes; assistant will not read the secret file) and to run with the `.venv` interpreter activated. Waiting for the user's go-ahead.
+
+---
+
+### User
+> Before we run, walk me through the code path. This is how it looks as I understand it, based on reading through it and based on the architecture design.
+>
+> We enter through main.py (NOT evaluation).
+> We build the cases through data.py, where we turn claims from image and csv format into Case objects. In addition to stated inputs in problem_statement.md, we load 'requirements' for later use of whether the claim is valid.
+> We then make the sdk client, using my anthropic key. If we want to use a different imaging model later, we would switch this portion out.
+> We process the cases with runner.py. I need an explanation on how process_cases works, especially in the first few lines after ThreadPoolExecutor. We are submitting each case to be processed concurrently, but where is it being submitted to?
+> We write our output, and log metrics including elapsed time and estimated cost.
+>
+> Is this a fair summary?
+
+### Assistant
+Confirmed the summary is fair, with four refinements: (1) main.py and evaluation/main.py are **sibling** entry points that both reuse the `claim_pipeline` package — evaluation also scores against gold labels; (2) `requirements` isn't used by code to judge validity — it's injected as text into the prompt so the *model* judges `evidence_standard_met`; normalize.py only clamps enums; (3) `make_client()` only builds the Anthropic client — the model string lives in `MODEL` in client.py, and client.py's `assess_case` is the seam you'd rewrite to swap providers; (4) `process_cases` returns `(rows, usage)` — main.py does the writing, which keeps runner.py reusable by evaluation.
+
+Then explained `process_cases` in depth. **"Where is it submitted to?"** → the thread pool's internal work queue. `ThreadPoolExecutor(max_workers=6)` runs up to 6 worker threads sharing one queue; `pool.submit(assess_case, client, case)` packages the call as a task, puts it on the queue, and returns a `Future` immediately (non-blocking); an idle worker thread pulls it off and runs `assess_case` → `client.messages.stream(...)` → the Anthropic API. Mapped each construct to Java (`Executors.newFixedThreadPool`, `executor.submit`, `Future.get`, `ExecutorCompletionService`, try-with-resources). Explained `future_to_idx` (dict `{Future: index}`) is needed because `as_completed` yields results out of order, so we restore input order via `rows[idx] = ...`; `[None] * len(cases)` pre-sizes the slots. Noted the GIL is released during network waits so threads genuinely overlap (would use `ProcessPoolExecutor` if CPU-bound), and `future.result()` + per-claim `try/except` isolates failures so one bad claim can't sink the batch.
+
+### User
+> Ok, I understand a little better. I previously thought process_cases in runner.py processed every case, including running the AI agent. Instead, the prompt information is already set up when we ran access_case in client.py. So,
+>
+> We make the sdk client, using my anthropic key, with client.py. It also specifies how to process each case based on our provided prompts. Then, we submit the claim with the processing information into the work queue in runner.py.
+>
+> If that is all right, my question is: in every case, do we copy the exact same prompt? Is there a way to simply this approach?
+
+### Assistant
+Corrected one timing detail: `make_client()` sets up **no** prompts (only the authenticated client); and `pool.submit(assess_case, client, case)` does **not** build the prompt at submit time — it stores a reference to the function plus the raw `case`, and the prompt is built **lazily** when a worker thread runs `assess_case` (that's when `build_user_content(case)` + the system block are assembled and sent). Accurate sequence: make_client → submit (queue function + case) → worker runs assess_case which builds prompt, calls API, parses JSON.
+
+Answered "same prompt every time?": the **system prompt** (rules/allowed values/injection guard) is identical for all 64 claims and is a module-level constant built **once** at import; the **user message** (transcript/history/requirements/images) differs per claim and is rebuilt each call. In memory we do not rebuild the system prompt — every call references the same string (no copy); the one redundancy is re-wrapping it in the `system=[{...cache_control...}]` list each call. Over the network the system text is sent every request (the API is stateless), but `cache_control: ephemeral` caches it server-side so subsequent calls within ~5 min read it back at ~10% input cost — already in the code. Proposed a small simplification: hoist the system list to a module-level `SYSTEM_BLOCKS` constant so it's built once, not 64 times, and the caching intent is clearer. (User asked to update the transcript before applying the edit.)
+
+[Updated the transcript, then applied the refactor: added `SYSTEM_BLOCKS` constant in client.py, pointed `assess_case` at it; recompiled.]
+
+---
+
+### User
+> Added some API credits. You may go ahead.
+
+### Assistant
+Ran a 2-claim smoke test first. It exposed a **critical bug**: every API call was failing (HTTP 400) and being swallowed into `error_row`, so cost showed $0.00 and predictions were all error rows. Root cause: dataset images are **mislabeled** — files named `.jpg` are actually WebP/PNG/AVIF, and the API validates the real bytes against the declared media type. Counted the 111 referenced images: 67 JPEG, 19 PNG, 17 WebP, 8 AVIF.
+
+Fix: in data.py, detect the true media type from **magic bytes** (not the extension) and, for formats the API doesn't accept (AVIF), convert to PNG in-memory via Pillow + `pillow-avif-plugin` (added to requirements.txt). Re-ran the 2-claim smoke test → real calls succeeded ($0.062, correct predictions). Then ran the full 20-claim sample evaluation.
+
+**Baseline (sample_claims.csv, n=20):** runtime 32.6s, cost $0.41.
+- Per-field exact-match: evidence_standard_met 70%, valid_image 80%, claim_status 70%, issue_type 50%, object_part 85%, severity 50%.
+- claim_status confusion (gold→pred): supported 10/12 (2→nei); contradicted 3/5 (1→supported, 1→nei); not_enough_information 1/3.
+- risk_flags micro: precision 58.5%, recall 82.8%, F1 68.6% (tp=24, fp=17, fn=5) — i.e. over-flagging.

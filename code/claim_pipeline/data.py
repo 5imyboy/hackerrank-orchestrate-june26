@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import base64
 import csv
-import os
+import io
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# Media types the Anthropic API accepts directly. Anything else (e.g. AVIF) is
+# converted to PNG before sending.
+SUPPORTED_MEDIA = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 # Project root = two levels up from this file (.../code/claim_pipeline/data.py
 # -> .../code -> .../<repo>). Path(__file__) is like Java's
@@ -74,15 +78,51 @@ def requirements_for(
     ]
 
 
+def _sniff_media_type(data: bytes) -> str | None:
+    """Detect the real image format from magic bytes (NOT the file extension).
+
+    Dataset files are frequently mislabeled (a .jpg that is actually WebP/AVIF),
+    and the API validates the real bytes. Returns a supported media type, or None
+    if the format needs conversion (e.g. AVIF/HEIF).
+    """
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None  # AVIF/HEIF/unknown -> convert below
+
+
+def _convert_to_png(data: bytes) -> bytes:
+    """Decode any Pillow-readable image (incl. AVIF) and re-encode as PNG."""
+    # Imported lazily so the data layer only needs Pillow when a conversion is
+    # actually required. `import pillow_avif` registers the AVIF decoder.
+    from PIL import Image
+    import pillow_avif  # noqa: F401  (side-effect import: registers AVIF)
+
+    with Image.open(io.BytesIO(data)) as im:
+        buf = io.BytesIO()
+        im.convert("RGB").save(buf, format="PNG")
+        return buf.getvalue()
+
+
 def _encode_image(rel_path: str, dataset_dir: Path) -> ImageData:
-    """Read an image off disk and base64-encode it for the API."""
+    """Read an image off disk, normalize its format, and base64-encode it."""
     full = dataset_dir / rel_path
     data = full.read_bytes()
+
+    media_type = _sniff_media_type(data)
+    if media_type is None:
+        # Unsupported on the wire (AVIF etc.): convert to PNG in-memory.
+        data = _convert_to_png(data)
+        media_type = "image/png"
+
     b64 = base64.standard_b64encode(data).decode("ascii")
     # filename without extension: Path("img_1.jpg").stem -> "img_1"
     image_id = Path(rel_path).stem
-    ext = Path(rel_path).suffix.lower()
-    media_type = "image/png" if ext == ".png" else "image/jpeg"
     return ImageData(image_id=image_id, media_type=media_type, b64=b64, path=rel_path)
 
 

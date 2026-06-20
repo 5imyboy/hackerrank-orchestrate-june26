@@ -25,6 +25,18 @@ from .schema import ClaimAssessment
 MODEL = "claude-opus-4-8"
 MAX_TOKENS = 2048
 
+# The system prompt is identical for every claim, so we build the cached block
+# ONCE at import time and reuse it on every call. cache_control marks it so
+# Anthropic caches it server-side: the first call pays full input price, the
+# rest (within ~5 min) read it back at ~10% cost.
+SYSTEM_BLOCKS = [
+    {
+        "type": "text",
+        "text": SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }
+]
+
 
 @dataclass
 class Usage:
@@ -102,15 +114,8 @@ def assess_case(
     max_attempts: int = 3,
 ) -> CallResult:
     """Run one claim through Claude vision and return a validated assessment."""
-    # system is a list of blocks so we can attach cache_control to the big,
-    # constant prompt. "ephemeral" cache lives ~5 min — plenty for one batch run.
-    system = [
-        {
-            "type": "text",
-            "text": SYSTEM_PROMPT,
-            "cache_control": {"type": "ephemeral"},
-        }
-    ]
+    # SYSTEM_BLOCKS (built once at import) carries the cached rule block; only the
+    # per-claim user message is assembled here.
     messages = [{"role": "user", "content": build_user_content(case)}]
 
     last_err: Exception | None = None
@@ -120,7 +125,7 @@ def assess_case(
             with client.messages.stream(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
-                system=system,
+                system=SYSTEM_BLOCKS,
                 messages=messages,
                 thinking={"type": "adaptive"},
             ) as stream:
