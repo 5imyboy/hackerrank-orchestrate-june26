@@ -375,3 +375,42 @@ Proposed a fix — soften the GATE to "DEFAULT TO TRUST": assume images ARE of t
 
 ### Assistant
 Held the "default to trust" prompt edit (NOT applied — saved for later). Addressed the real gap: the eval only printed aggregate metrics + dumped predictions_sample.csv/metrics.json, so seeing *what went wrong* required an ad-hoc diff script. Added a first-class, human-readable per-case diff artifact to code/evaluation/main.py — `write_diff()` writes `evaluation/diff_sample.md` every run with: (1) a summary block (n/runtime/cost/per-field accuracy), (2) a claim_status headline table (user_id | object | gold | pred | ✓/✗), and (3) per-case field misses (`field: gold → pred`) plus risk-flag set diffs (`+extra -missing`). It re-reads predictions already on disk, so no extra API calls. Generated diff_sample.md from the existing (regressed) run to demonstrate; py_compile passes. The diff confirmed the over-abstention cases share evidence_standard_met/valid_image flips — one root cause the pending softening should fix together. Prompt.py currently still has the strict GATE (the regression); the softening is pending the user's go-ahead.
+
+---
+
+### User
+> Go ahead. I'll also say that we should solve the not_enough_information blanket ruling first, before fixing the others. From a human perspective fixing one error at a time in the prompt feels best.
+>
+> But I'm still not too sure how a prompt works. Does that make sense to you?
+
+### Assistant
+Endorsed the one-error-at-a-time discipline, with two caveats on how prompts differ from code: (1) prompt edits are NOT surgically isolated — the model reads the prompt holistically, so one change can move several metrics (as the GATE did to claim_status + evidence_standard_met + valid_image); (2) the model is non-deterministic, so with n=20 a 1–2 case swing can be noise. Rule: after each edit, check the targeted metric moved AND nothing regressed; don't over-read tiny wiggles.
+
+Applied the "default to trust" softening and re-ran — **it barely moved** (claim_status still 60%, same over-abstention). So the GATE-line hypothesis was WRONG. Read the per-case justifications in predictions_sample.csv and found the true cause: an instruction I had introduced elsewhere — "image SET is internally inconsistent → not_enough_information" — was making the model abstain whenever two photos looked like different objects (it even SAW the dent in user_003 and abstained). The dataset doesn't work that way: it wants you to assess the claimed damage from whichever image shows it and COMMIT; mismatch/wrong-object/stock-photo → contradicted, nei reserved for genuinely unusable images.
+
+Rewrote HOW TO DECIDE to remove the inconsistent-set abstention, make committing the default, and route mismatch→contradicted, unusable→nei. Re-ran — **big win:**
+
+| field | baseline | regressed | now |
+|---|---|---|---|
+| claim_status | 70% | 60% | **80%** |
+| evidence_standard_met | 70% | 60% | **80%** |
+| valid_image | 80% | 60% | **85%** |
+| object_part | 85% | 90% | **90%** |
+| issue_type | 50% | 40% | 45% |
+| severity | 50% | 45% | 45% |
+
+claim_status confusion: supported 12/12 (perfect), contradicted 4/5, nei 0/3 (now over-commits — the expected flip side). evidence_standard_met + valid_image recovered too, confirming the shared root cause. The 4 remaining claim_status misses (user_002/006/032/034) are ambiguous nei/stock-photo edge cases where the dataset is itself inconsistent (stock photo → nei in user_006 but contradicted in user_008/034) — chasing them risks re-introducing the abstention we just removed. Recommended locking claim_status at 80% and moving the next pass to issue_type/severity (both 45%, ~11 misses each — bigger, less-ambiguous levers).
+
+---
+
+### User
+> Before we select those three choices (I am also thinking the first choice is the best), I'm considering the question of price scaling. It costs around 60 cents per test run. That's fine so far as long as we make meaningful refinements per test.
+>
+> There is a small line in the problem statemtn doc that needs us to report the approximate cost. In a hackathon setting 60 cents might be fine, but what about in an industry setting when there are hundreds of claims?
+>
+> Do you think this is scalable? If so we can proceed.
+
+### Assistant
+Decomposed the actual cost from metrics.json: **$0.030/claim**. Split: output (answer + adaptive thinking) 48% — the dominant cost and why the GATE run rose $0.41→$0.60; images 33% (~2,000 input tokens/claim); cache 18% (system-prompt cache already working: 35k reads vs 15k writes). Projection: 44-row test ~$1.32; 1,000 claims ~$30; 100k/mo ~$3,000.
+
+Verdict: **scalable, proceed.** Two framings — (1) ROI: $0.03 to auto-triage evidence vs. dollars of human-adjuster labor per claim is a strong trade; (2) Headroom: large unused levers, no redesign needed — Batch API −50% (claims are offline/async, free money → ~$0.015/claim); model tier (Sonnet 4.6 ~40% cheaper output, Haiku 4.5 ~80%); image downscaling to ~1568px cuts the 33% image slice. Stacked → sub-cent/claim (~$5–8 per 1,000). Recommended keeping Opus + adaptive thinking for the hackathon (accuracy is judged) and documenting this cost decomposition + scaling levers in evaluation_report.md — exactly what the "report approximate cost" line wants.
